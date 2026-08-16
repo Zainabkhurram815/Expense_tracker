@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense Tracker Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background-color: #f4f7f6; display: flex; justify-content: center; padding: 20px; }
+        .tracker-container { background: #ffffff; width: 100%; max-width: 450px; padding: 25px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.08); position: relative; min-height: 500px; }
+        h2 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
+        .total-box { background: #2ecc71; color: white; text-align: center; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+        input, select, button { width: 100%; padding: 12px; margin-bottom: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        button { background-color: #e67e22; color: white; border: none; font-weight: bold; cursor: pointer; }
+        .tabs { display: flex; margin-bottom: 15px; border-bottom: 2px solid #ecf0f1; }
+        .tab-btn { flex: 1; padding: 10px; background: none; border: none; font-weight: bold; color: #7f8c8d; cursor: pointer; }
+        .tab-btn.active { color: #2c3e50; border-bottom: 3px solid #2ecc71; }
+        .auth-form { display: none; }
+        .auth-form.active { display: block; }
+        .expense-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px dotted #eee; }
+        .delete-btn { background: #e74c3c; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+        #menu { display: none; position: absolute; top: 40px; right: 25px; background: white; border: 1px solid #ddd; border-radius: 8px; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 10; }
+    </style>
+</head>
+<body>
+    <div class="tracker-container">
+        <div id="menu-icon" style="position:absolute; top:10px; right:15px; font-size:24px; cursor:pointer; display:none;" onclick="toggleMenu()">⋮</div>
+        <div id="menu">
+            <div onclick="changeUser()" style="cursor:pointer; padding:5px;">Change Username</div>
+            <div onclick="changePass()" style="cursor:pointer; padding:5px;">Change Password</div>
+            <div onclick="showRecords()" style="cursor:pointer; padding:5px;">Last 30 Days</div>
+            <div onclick="logout()" style="cursor:pointer; padding:5px; color:red;">Logout</div>
+        </div>
+
+        <h2>Expense Tracker</h2>
+
+        <div id="auth-section">
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchAuth('login', event)">Login</button>
+                <button class="tab-btn" onclick="switchAuth('register', event)">Register</button>
+            </div>
+            <div id="login-form" class="auth-form active">
+                <input type="text" id="l-user" placeholder="Username">
+                <input type="password" id="l-pass" placeholder="Password">
+                <button onclick="login()">Login</button>
+            </div>
+            <div id="register-form" class="auth-form">
+                <input type="text" id="r-user" placeholder="Username">
+                <input type="password" id="r-pass" placeholder="Password">
+                <input type="password" id="r-confirm" placeholder="Confirm Password">
+                <input type="text" id="r-q" placeholder="Security Question">
+                <input type="text" id="r-a" placeholder="Answer">
+                <button onclick="register()">Register</button>
+            </div>
+        </div>
+
+        <div id="app-section" style="display:none;">
+            <div id="main-ui">
+                <div class="total-box"><h3>Total: <span id="total-amount">0</span> Rs</h3></div>
+                <div style="margin-bottom: 20px;"><canvas id="expenseChart"></canvas></div>
+                <input type="text" id="exp-name" placeholder="Item Name">
+                <input type="number" id="exp-amt" placeholder="Amount">
+                <select id="exp-cat"><option>Food</option><option>Education</option><option>Travel</option><option>Other</option></select>
+                <button onclick="addExpense()">Add Expense</button>
+            </div>
+            <div id="expense-list"></div>
+            <button id="back-btn" style="display:none; width:100%; padding:12px; background:#3498db; color:white; border:none; border-radius:8px;" onclick="backToMain()">Back to Tracker</button>
+        </div>
+    </div>
+
+    <script>
+        let users = JSON.parse(localStorage.getItem('users')) || {};
+        let current = null;
+        let chartInstance = null;
+
+        function switchAuth(type, e) {
+            document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(type + '-form').classList.add('active');
+            e.target.classList.add('active');
+        }
+
+        function register() {
+            let u = document.getElementById('r-user').value.trim();
+            let p = document.getElementById('r-pass').value;
+            let c = document.getElementById('r-confirm').value;
+            if(!u || !p || p !== c) return alert("Check inputs!");
+            users[u] = { pass: p, exps: [] };
+            localStorage.setItem('users', JSON.stringify(users));
+            alert("Registered!");
+        }
+
+        function login() {
+            let u = document.getElementById('l-user').value.trim();
+            let p = document.getElementById('l-pass').value;
+            if(users[u] && users[u].pass === p) {
+                current = u;
+                document.getElementById('auth-section').style.display = 'none';
+                document.getElementById('app-section').style.display = 'block';
+                document.getElementById('menu-icon').style.display = 'block';
+                render();
+            } else alert("Invalid credentials!");
+        }
+
+        function addExpense() {
+            let name = document.getElementById('exp-name').value.trim();
+            let amt = parseFloat(document.getElementById('exp-amt').value);
+            if(!name || !amt || amt <= 0) return;
+            users[current].exps.push({ id: Date.now(), name, amt, cat: document.getElementById('exp-cat').value, date: new Date().toISOString().split('T')[0] });
+            localStorage.setItem('users', JSON.stringify(users));
+            render();
+            document.getElementById('exp-name').value = "";
+            document.getElementById('exp-amt').value = "";
+        }
+
+        function render() {
+            let list = document.getElementById('expense-list');
+            list.innerHTML = "";
+            let total = 0;
+            let totals = { Food: 0, Education: 0, Travel: 0, Other: 0 };
+            users[current].exps.forEach(e => {
+                total += e.amt;
+                totals[e.cat] = (totals[e.cat] || 0) + e.amt;
+                list.innerHTML += `<div class="expense-item">${e.name} (${e.cat}) - <b>Rs ${e.amt}</b><button class="delete-btn" onclick="del(${e.id})">X</button></div>`;
+            });
+            document.getElementById('total-amount').innerText = total;
+            updateChart(totals);
+        }
+
+        function updateChart(data) {
+            const ctx = document.getElementById('expenseChart').getContext('2d');
+            if(chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(ctx, { type: 'pie', data: { labels: ['Food', 'Education', 'Travel', 'Other'], datasets: [{ data: [data.Food, data.Education, data.Travel, data.Other], backgroundColor: ['#e74c3c', '#3498db', '#f1c40f', '#2ecc71'] }] } });
+        }
+
+        function del(id) {
+            users[current].exps = users[current].exps.filter(e => e.id !== id);
+            localStorage.setItem('users', JSON.stringify(users));
+            render();
+        }
+
+        function showRecords() {
+            document.getElementById('main-ui').style.display = 'none';
+            document.getElementById('back-btn').style.display = 'block';
+            toggleMenu();
+            let list = document.getElementById('expense-list');
+            let cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+            let recent = users[current].exps.filter(e => new Date(e.date) >= cutoff).sort((a,b) => new Date(b.date) - new Date(a.date));
+            let groups = recent.reduce((acc, ex) => {
+                if (!acc[ex.date]) acc[ex.date] = { items: [], total: 0 };
+                acc[ex.date].items.push(ex); acc[ex.date].total += ex.amt; return acc;
+            }, {});
+            list.innerHTML = `<h3>Last 30 Days Records</h3>` + Object.keys(groups).map(date => `
+                <div style="border:1px solid #ddd; margin:15px 0; padding:10px; border-radius:8px;">
+                    <div style="border-bottom:2px solid #e67e22; font-weight:bold;">${date}</div>
+                    ${groups[date].items.map(e => `<div class="expense-item">${e.name} (${e.cat}) <b>Rs ${e.amt}</b></div>`).join('')}
+                    <div style="text-align:right; font-weight:bold;">Daily Total: Rs ${groups[date].total}</div>
+                </div>`).join('');
+        }
+
+        function backToMain() { document.getElementById('main-ui').style.display = 'block'; document.getElementById('back-btn').style.display = 'none'; render(); }
+        function toggleMenu() { document.getElementById('menu').style.display = (document.getElementById('menu').style.display === 'block') ? 'none' : 'block'; }
+        function logout() { location.reload(); }
+        function changeUser() { let newName = prompt("New Username:"); if(newName && !users[newName]) { users[newName] = users[current]; delete users[current]; current = newName; localStorage.setItem('users', JSON.stringify(users)); alert("Done!"); toggleMenu(); } }
+        function changePass() { let oldP = prompt("Old Password:"); if(oldP === users[current].pass) { users[current].pass = prompt("New Password:"); localStorage.setItem('users', JSON.stringify(users)); alert("Done!"); toggleMenu(); } else alert("Wrong!"); }
+    </script>
+</body>
+</html>
